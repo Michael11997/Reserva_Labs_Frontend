@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { reservaSchema } from "./reservaSchema";
+import "./index.css";
 
 const API = "http://localhost:3010";
 
@@ -18,54 +19,64 @@ export default function App() {
 
   const [errores, setErrores] = useState({});
   const [mensaje, setMensaje] = useState("");
+  const [darkMode, setDarkMode] = useState(() => {
+  const guardado = localStorage.getItem("darkMode");
+  return guardado ? JSON.parse(guardado) : false;
+});
 
   async function cargar() {
-  try {
-    const res = await fetch(`${API}/api/salas`);
+    try {
+      const res = await fetch(`${API}/api/salas`);
 
-    if (!res.ok) {
-      throw new Error("no se pudo cargar");
-    }
-
-    const data = await res.json();
-
-    setSalas(data);
-    setError(null);
-  } catch (e) {
-    setError(e.message);
-  } finally {
-    setCargando(false);
-  }
-}
-
-  useEffect(() => {
-  const controller = new AbortController();
-
-  fetch(`${API}/api/salas`, { signal: controller.signal })
-    .then((res) => {
       if (!res.ok) {
-        throw new Error("no se pudo cargar");
+        throw new Error("No se pudieron cargar los laboratorios");
       }
 
-      return res.json();
-    })
-    .then((data) => {
+      const data = await res.json();
+
       setSalas(data);
       setError(null);
-    })
-    .catch((e) => {
-      if (e.name !== "AbortError") {
-        setError(e.message);
-      }
-    })
-    .finally(() => {
+    } catch (e) {
+      setError(e.message);
+    } finally {
       setCargando(false);
-    });
+    }
+  }
 
-  return () => {
-    controller.abort();
-  };
-}, []);
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`${API}/api/salas`, {
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("No se pudieron cargar los laboratorios");
+        }
+
+        return res.json();
+      })
+      .then((data) => {
+        setSalas(data);
+        setError(null);
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") {
+          setError(e.message);
+        }
+      })
+      .finally(() => {
+        setCargando(false);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+  localStorage.setItem("darkMode", JSON.stringify(darkMode));
+}, [darkMode]);
 
   async function reservar(e) {
     e.preventDefault();
@@ -80,164 +91,361 @@ export default function App() {
       return;
     }
 
-    const res = await fetch(
-      `${API}/api/salas/${salaId}/reservas`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(form),
+    try {
+      const res = await fetch(
+        `${API}/api/salas/${salaId}/reservas`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(form),
+        }
+      );
+
+      if (res.status === 400) {
+        setErrores((await res.json()).detalles || {});
+        return;
       }
-    );
 
-    if (res.status === 400) {
-      setErrores((await res.json()).detalles || {});
-      return;
+      if (!res.ok) {
+        setMensaje("No se pudo crear la reserva");
+        return;
+      }
+
+      setMensaje("✓ Reserva creada correctamente");
+
+      setForm({
+        responsable: "",
+        motivo: "",
+        inicio: "",
+        fin: "",
+      });
+
+      setSalaId("");
+
+      cargar();
+    } catch {
+      setMensaje("No se pudo conectar con el servidor");
     }
-
-    if (!res.ok) {
-      setMensaje("error del servidor");
-      return;
-    }
-
-    setMensaje("✓ reserva creada");
-
-    setForm({
-      responsable: "",
-      motivo: "",
-      inicio: "",
-      fin: "",
-    });
-
-    cargar();
   }
 
+  const totalReservas = useMemo(
+    () =>
+      salas.reduce(
+        (total, sala) => total + (sala.reservas?.length ?? 0),
+        0
+      ),
+    [salas]
+  );
+
   return (
-    <main
-      style={{
-        maxWidth: 720,
-        margin: "2rem auto",
-        fontFamily: "system-ui",
-      }}
-    >
-      <h1>Reserva de Labs</h1>
+    <div className={`app ${darkMode ? "dark" : ""}`}>
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-icon">RL</div>
 
-      {cargando && <p>Cargando labs...</p>}
+          <div>
+            <h1>Reserva Labs</h1>
+            <p>Gestión de laboratorios universitarios</p>
+          </div>
+        </div>
 
-      {error && <p>Error: {error}</p>}
+        <div className="topbar-actions">
+  <button
+    type="button"
+    className="theme-toggle"
+    onClick={() => setDarkMode(!darkMode)}
+  >
+    {darkMode ? "☀️ Claro" : "🌙 Oscuro"}
+  </button>
 
-      <ul>
-        {salas.map((s) => (
-          <li key={s.id}>
-            <b>{s.nombre}</b> · {s.edificio} · cap. {s.capacidad}
+  <div className="status">
+    <span className="status-dot"></span>
+    Sistema conectado
+  </div>
+</div>
+      </header>
 
-            <ul>
-              {s.reservas.map((r) => (
-                <li key={r.id}>
-                  {r.responsable} — {r.motivo}
-                </li>
+      <main className="page">
+        <section className="hero">
+          <div>
+            <span className="eyebrow">Panel de reservas</span>
+            <h2>Encuentra y reserva tu laboratorio</h2>
+            <p>
+              Consulta los laboratorios disponibles y registra una
+              nueva reserva de manera rápida.
+            </p>
+          </div>
+        </section>
+
+        <section className="stats">
+          <article className="stat-card">
+            <span className="stat-label">Laboratorios</span>
+            <strong>{salas.length}</strong>
+            <small>Registrados en el sistema</small>
+          </article>
+
+          <article className="stat-card">
+            <span className="stat-label">Reservas</span>
+            <strong>{totalReservas}</strong>
+            <small>Reservas registradas</small>
+          </article>
+
+          <article className="stat-card">
+            <span className="stat-label">Estado</span>
+            <strong className="available">Activo</strong>
+            <small>API conectada</small>
+          </article>
+        </section>
+
+        <div className="content-grid">
+          <section className="labs-section">
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">
+                  Laboratorios
+                </span>
+                <h3>Salas disponibles</h3>
+              </div>
+
+              <span className="counter">
+                {salas.length} salas
+              </span>
+            </div>
+
+            {cargando && (
+              <div className="state-card">
+                Cargando laboratorios...
+              </div>
+            )}
+
+            {error && (
+              <div className="state-card error-card">
+                <strong>Error de conexión</strong>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {!cargando && !error && salas.length === 0 && (
+              <div className="state-card">
+                No hay laboratorios registrados.
+              </div>
+            )}
+
+            <div className="labs-grid">
+              {salas.map((s) => (
+                <article className="lab-card" key={s.id}>
+                  <div className="lab-card-top">
+                    <div className="lab-number">
+                      {String(s.id).padStart(2, "0")}
+                    </div>
+
+                    <span className="capacity">
+                      Capacidad {s.capacidad}
+                    </span>
+                  </div>
+
+                  <h4>{s.nombre}</h4>
+
+                  <p className="building">
+                    Edificio {s.edificio}
+                  </p>
+
+                  <div className="reservations">
+                    <div className="reservations-heading">
+                      <span>Reservas</span>
+
+                      <span>
+                        {s.reservas?.length ?? 0}
+                      </span>
+                    </div>
+
+                    {(s.reservas ?? []).length === 0 ? (
+                      <p className="empty-reservation">
+                        Sin reservas registradas
+                      </p>
+                    ) : (
+                      <div className="reservation-list">
+                        {(s.reservas ?? []).map((r) => (
+                          <div
+                            className="reservation-item"
+                            key={r.id}
+                          >
+                            <div className="avatar">
+                              {r.responsable
+                                ?.charAt(0)
+                                .toUpperCase()}
+                            </div>
+
+                            <div>
+                              <strong>{r.responsable}</strong>
+                              <span>{r.motivo}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </article>
               ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
+            </div>
+          </section>
 
-      <h2>Nueva reserva</h2>
+          <aside className="reservation-panel">
+            <div className="panel-heading">
+              <span className="section-kicker">
+                Nueva reserva
+              </span>
 
-      <form onSubmit={reservar}>
-        <select
-          value={salaId}
-          onChange={(e) => setSalaId(e.target.value)}
-          required
-        >
-          <option value="">— elegí un lab —</option>
+              <h3>Reserva un laboratorio</h3>
 
-          {salas.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.nombre}
-            </option>
-          ))}
-        </select>
+              <p>
+                Completa la información para registrar tu
+                solicitud.
+              </p>
+            </div>
 
-        <br />
+            <form onSubmit={reservar}>
+              <div className="field">
+                <label htmlFor="sala">Laboratorio</label>
 
-        <input
-          placeholder="tu nombre"
-          value={form.responsable}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              responsable: e.target.value,
-            })
-          }
-        />
+                <select
+                  id="sala"
+                  value={salaId}
+                  onChange={(e) =>
+                    setSalaId(e.target.value)
+                  }
+                  required
+                >
+                  <option value="">
+                    Selecciona un laboratorio
+                  </option>
 
-        {errores.responsable && (
-          <small>{errores.responsable[0]}</small>
-        )}
+                  {salas.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        <br />
+              <div className="field">
+                <label htmlFor="responsable">
+                  Responsable
+                </label>
 
-        <input
-          placeholder="motivo"
-          value={form.motivo}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              motivo: e.target.value,
-            })
-          }
-        />
+                <input
+                  id="responsable"
+                  placeholder="Ej. Michael Gutiérrez"
+                  value={form.responsable}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      responsable: e.target.value,
+                    })
+                  }
+                />
 
-        {errores.motivo && (
-          <small>{errores.motivo[0]}</small>
-        )}
+                {errores.responsable && (
+                  <small className="field-error">
+                    {errores.responsable[0]}
+                  </small>
+                )}
+              </div>
 
-        <br />
+              <div className="field">
+                <label htmlFor="motivo">Motivo</label>
 
-        <label>Inicio</label>
+                <input
+                  id="motivo"
+                  placeholder="Ej. Práctica de programación"
+                  value={form.motivo}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      motivo: e.target.value,
+                    })
+                  }
+                />
 
-        <input
-          type="datetime-local"
-          value={form.inicio}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              inicio: e.target.value,
-            })
-          }
-        />
+                {errores.motivo && (
+                  <small className="field-error">
+                    {errores.motivo[0]}
+                  </small>
+                )}
+              </div>
 
-        {errores.inicio && (
-          <small>{errores.inicio[0]}</small>
-        )}
+              <div className="date-grid">
+                <div className="field">
+                  <label htmlFor="inicio">Inicio</label>
 
-        <br />
+                  <input
+                    id="inicio"
+                    type="datetime-local"
+                    value={form.inicio}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        inicio: e.target.value,
+                      })
+                    }
+                  />
 
-        <label>Fin</label>
+                  {errores.inicio && (
+                    <small className="field-error">
+                      {errores.inicio[0]}
+                    </small>
+                  )}
+                </div>
 
-        <input
-          type="datetime-local"
-          value={form.fin}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              fin: e.target.value,
-            })
-          }
-        />
+                <div className="field">
+                  <label htmlFor="fin">Fin</label>
 
-        {errores.fin && (
-          <small>{errores.fin[0]}</small>
-        )}
+                  <input
+                    id="fin"
+                    type="datetime-local"
+                    value={form.fin}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        fin: e.target.value,
+                      })
+                    }
+                  />
 
-        <br />
+                  {errores.fin && (
+                    <small className="field-error">
+                      {errores.fin[0]}
+                    </small>
+                  )}
+                </div>
+              </div>
 
-        <button type="submit">Reservar</button>
-      </form>
+              <button className="reserve-button" type="submit">
+                Crear reserva
+                <span>→</span>
+              </button>
 
-      {mensaje && <p>{mensaje}</p>}
-    </main>
+              {mensaje && (
+                <div
+                  className={
+                    mensaje.startsWith("✓")
+                      ? "message success-message"
+                      : "message error-message"
+                  }
+                >
+                  {mensaje}
+                </div>
+              )}
+            </form>
+          </aside>
+        </div>
+      </main>
+
+      <footer>
+        Reserva Labs · Proyecto de Programación Web
+      </footer>
+    </div>
   );
 }
